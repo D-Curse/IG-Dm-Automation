@@ -8,17 +8,30 @@ from pathlib import Path
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import time
+import json
+import hashlib
 
 import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, render_template, request, session, redirect, url_for
+from werkzeug.security import check_password_hash
 
 load_dotenv()
 ROOT = Path(__file__).parent
 (ROOT / 'instance').mkdir(exist_ok=True)
 app = Flask(__name__)
-app.secret_key = os.getenv('SECRET_KEY') or secrets.token_hex(32)
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict', MAX_CONTENT_LENGTH=65536)
+secret_path = ROOT / 'instance' / 'session-secret'
+try:
+    with secret_path.open('x') as secret_file:
+        secret_file.write(secrets.token_hex(32))
+except FileExistsError:
+    pass
+app.secret_key = secret_path.read_text().strip()
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict',
+                  SESSION_COOKIE_SECURE=os.getenv('COOKIE_SECURE', '0') == '1',
+                  PERMANENT_SESSION_LIFETIME=timedelta(hours=8), MAX_CONTENT_LENGTH=65536)
+AUTH_FILE = ROOT / 'instance' / 'dashboard-auth.json'
+auth_lock = threading.Lock()
 DB = ROOT / 'instance' / 'automation.db'
 run_lock = threading.Lock()
 analytics_cache = {}
@@ -48,6 +61,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, message TEXT, created TEXT DEFAULT CURRENT_TIMESTAMP);
         INSERT OR IGNORE INTO settings VALUES ('background', '0');
         INSERT OR IGNORE INTO settings VALUES ('last_sync', 'Never');
+        CREATE TABLE IF NOT EXISTS login_attempts (address TEXT, attempted REAL);
+        CREATE TABLE IF NOT EXISTS dashboard_sessions (token TEXT PRIMARY KEY, expires REAL);
         ''')
 
 
@@ -181,8 +196,96 @@ def run_automation():
 
 @app.before_request
 def protect_mutations():
-    if request.method == 'POST' and not secrets.compare_digest(request.headers.get('X-CSRF-Token', ''), session.get('csrf', secrets.token_hex(32))):
+    public = request.endpoint in ('login', 'static')
+    if not public:
+        credentials = read_credentials()
+        if not credentials or not authenticated(credentials):
+            session.clear()
+            if request.path.startswith('/api/'):
+                return jsonify(error='Please sign in to continue.'), 401
+            return redirect(url_for('login'))
+    if request.method == 'POST' and not secrets.compare_digest(request.headers.get('X-CSRF-Token', '') or request.form.get('csrf', ''), session.get('csrf', secrets.token_hex(32))):
         return jsonify(error='Refresh the dashboard and try again.'), 403
+
+
+def read_credentials():
+    try:
+        return json.loads(AUTH_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def credential_version(credentials):
+    return hashlib.sha256((credentials['username'] + credentials['password_hash']).encode()).hexdigest()
+
+
+def authenticated(credentials):
+    now = time.time()
+    with connect() as db:
+        active = db.execute('SELECT 1 FROM dashboard_sessions WHERE token=? AND expires>?',
+                            (session.get('sid', ''), now)).fetchone()
+    return (bool(active) and session.get('auth') == credential_version(credentials)
+            and now - session.get('signed_in', 0) < 8 * 3600
+            and now - session.get('last_seen', 0) < 30 * 60)
+
+
+@app.after_request
+def security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'same-origin'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'"
+    if request.endpoint != 'static':
+        response.headers['Cache-Control'] = 'no-store'
+    if app.config['SESSION_COOKIE_SECURE']:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000'
+    # Polling alone must not keep an unattended dashboard signed in.
+    if session.get('auth') and (request.endpoint == 'index' or request.method == 'POST'):
+        session['last_seen'] = time.time()
+    return response
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    credentials = read_credentials()
+    session.setdefault('csrf', secrets.token_hex(32))
+    error = None
+    status = 200
+    if not credentials:
+        return render_template('login.html', csrf=session['csrf'], setup=True), 503
+    if request.method == 'POST':
+        address = request.remote_addr or 'unknown'
+        with auth_lock:
+            with connect() as db:
+                db.execute('DELETE FROM login_attempts WHERE attempted < ?', (time.time() - 900,))
+                attempts = db.execute('SELECT COUNT(*) FROM login_attempts WHERE address=?', (address,)).fetchone()[0]
+                total = db.execute('SELECT COUNT(*) FROM login_attempts').fetchone()[0]
+                if attempts >= 5 or total >= 50:
+                    error, status = 'Too many attempts. Try again in 15 minutes.', 429
+                else:
+                    db.execute('INSERT INTO login_attempts VALUES (?,?)', (address, time.time()))
+            if not error:
+                valid_password = check_password_hash(credentials['password_hash'], request.form.get('password', ''))
+                valid_user = secrets.compare_digest(request.form.get('username', '').encode(), credentials['username'].encode())
+                if valid_password and valid_user:
+                    session.clear()
+                    session.permanent = True
+                    session.update(auth=credential_version(credentials), sid=secrets.token_hex(32), signed_in=time.time(), last_seen=time.time(), csrf=secrets.token_hex(32))
+                    with connect() as db:
+                        db.execute('DELETE FROM dashboard_sessions WHERE expires < ?', (time.time(),))
+                        db.execute('INSERT INTO dashboard_sessions VALUES (?,?)', (session['sid'], time.time() + 8 * 3600))
+                        db.execute('DELETE FROM login_attempts WHERE address=?', (address,))
+                    return redirect(url_for('index'))
+                error, status = 'Invalid username or password.', 401
+    return render_template('login.html', csrf=session['csrf'], error=error, setup=False), status
+
+
+@app.post('/logout')
+def logout():
+    with connect() as db:
+        db.execute('DELETE FROM dashboard_sessions WHERE token=?', (session.get('sid', ''),))
+    session.clear()
+    return redirect(url_for('login'))
 
 
 @app.errorhandler(RuntimeError)

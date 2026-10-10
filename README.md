@@ -10,7 +10,15 @@ python -m venv .venv
 .\.venv\Scripts\python app.py
 ```
 
-Open http://127.0.0.1:5000. No credentials are needed for demo mode. Configure a sample reel, enable its rule, and click **Start automation**. Two sample comments receive simulated messages; one already-replied comment is skipped. Repeated runs do not resend messages.
+Open http://127.0.0.1:5000. Instagram credentials are not needed for demo mode; dashboard login setup is still required. Configure a sample reel, enable its rule, and click **Start automation**. Two sample comments receive simulated messages; one already-replied comment is skipped. Repeated runs do not resend messages.
+
+## Dashboard login
+
+Before accessing the dashboard, run `.\.venv\Scripts\python setup_login.py` in your terminal. Enter a username and a password/passphrase of at least 14 characters. Password input is hidden and only a salted scrypt hash is stored in `instance/dashboard-auth.json`. There is no default login or public signup. Until configured, dashboard and API access are denied. Run the same command to reset credentials; existing sessions become invalid without restarting.
+
+Sign in at `/login`. Sessions expire after 30 minutes without dashboard interactions and after eight hours maximum; polling does not keep them alive. Sign out revokes the session on the server. Login attempts are limited to five per IP per 15 minutes, with a global ceiling of 50; this single-process limiter uses the direct client IP and does not trust forwarded headers. Policy pages remain public. Authentication does not stop background automation.
+
+The server generates a persistent signing key in `instance/session-secret`; protect this file and the entire instance folder with OS access permissions. It replaces the legacy `SECRET_KEY` value for session signing. For HTTPS deployment set `COOKIE_SECURE=1`, and configure HTTPS before exposing the app. Keep one process and do not enable debug mode. Multi-user authorization, OAuth onboarding, and trusted reverse-proxy configuration are separate work.
 
 ## Connect Instagram
 
@@ -41,7 +49,7 @@ Enable **Background automation** to poll every `POLL_SECONDS` (default 60, minim
 
 For operation after login, create a Windows Task Scheduler task with program `E:\DmAutomation\.venv\Scripts\python.exe`, argument `E:\DmAutomation\app.py`, and start directory `E:\DmAutomation`. Configure restart on failure as needed. This repository does not install a system task automatically.
 
-Run a **single app process** through `python app.py`; it starts the worker and Waitress. The in-process lock serializes manual and scheduled runs. Importing `app:app` in another WSGI server does not start the worker. Multiple processes or replicas are not supported. The dashboard binds to localhost and has CSRF protection but no user authentication; add authentication and HTTPS before exposing it beyond your computer.
+Run a **single app process** through `python app.py`; it starts the worker and Waitress. The in-process lock serializes manual and scheduled runs. Importing `app:app` in another WSGI server does not start the worker. Multiple processes or replicas are not supported. The dashboard binds to localhost and has dashboard authentication and CSRF protection; configure HTTPS and deployment access controls before exposing it beyond your computer.
 
 SQLite state is stored in `instance/automation.db`. Keep it to preserve duplicate protection. Back up this file before moving the app. Connection tokens require renewal according to Meta's token lifecycle.
 

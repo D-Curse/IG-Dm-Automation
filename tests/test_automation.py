@@ -21,6 +21,12 @@ class AutomationTests(unittest.TestCase):
         module.init_db()
         module.sync_reels()
         self.client = module.app.test_client()
+        self.auth_patch = patch.object(module, 'authenticated', return_value=True)
+        self.auth_patch.start()
+        self.addCleanup(self.auth_patch.stop)
+        self.creds_patch = patch.object(module, 'read_credentials', return_value={'username':'test', 'password_hash':'test'})
+        self.creds_patch.start()
+        self.addCleanup(self.creds_patch.stop)
         self.client.get('/')
         with self.client.session_transaction() as session:
             self.headers = {'X-CSRF-Token': session['csrf']}

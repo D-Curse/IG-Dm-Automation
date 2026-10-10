@@ -15,7 +15,7 @@
   <div class="profile"><span class="avatar dark">Y</span><div>Your Instagram<small id="profile-mode">Demo workspace</small></div><span class="status-dot"></span></div>
 </aside>
 <main>
-  <header class="topbar"><span>Your workspace <span class="slash">/</span> <strong id="breadcrumb">Overview</strong></span><div><span class="mode-pill" id="mode">Demo mode</span><span class="top-avatar">Y</span></div></header>
+  <header class="topbar"><span>Your workspace <span class="slash">/</span> <strong id="breadcrumb">Overview</strong></span><div><span class="mode-pill" id="mode">Demo mode</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button secondary" type="submit">Sign out</button></form></div></header>
   <div class="page">
     <section class="page-heading"><div><div class="eyebrow">LESS BUSYWORK, MORE CONVERSATIONS</div><h1 id="page-title">Your growth, on autopilot<span>.</span></h1><p id="page-subtitle">The right reply. The right moment. Every time.</p></div><button class="button primary" id="run">▶ <span>Start automation</span></button></section>
     <div class="demo-banner" id="demo-banner"><span>✧</span><div><strong>Make yourself at home.</strong> You’re in demo mode. Explore with sample reels; no Instagram messages are sent.</div><button data-go="connection">Connect account ↗</button></div>

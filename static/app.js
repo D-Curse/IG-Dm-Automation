@@ -5,6 +5,7 @@ let toastTimer;
 function toast(message, error=false) {const el=$('#toast');el.textContent=message;el.className='toast show'+(error?' error':'');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),6000);}
 async function api(path, data) {
   const response=await fetch(path,{method:data===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':$('meta[name="csrf-token"]').content},body:data===undefined?undefined:JSON.stringify(data)});
+  if(response.status===401){window.location.assign('/login');throw Error('Session expired. Please sign in.');}
   const result=await response.json();if(!response.ok)throw Error(result.error || 'Request failed');return result;
 }
 function date(text) {if(!text || text==='Never')return 'never';const d=new Date(text.includes('T')?text:text.replace(' ','T')+'Z');return isNaN(d)?text:d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});}
