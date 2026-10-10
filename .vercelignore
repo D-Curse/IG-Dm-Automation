@@ -1,0 +1,9 @@
+# Upload only the public legal site and deployment configuration.
+*
+!vercel.json
+!static/
+static/*
+!static/legal/
+static/legal/*
+!static/legal/*.html
+!static/legal/*.css

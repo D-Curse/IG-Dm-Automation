@@ -2,6 +2,9 @@
 # Flask source, credentials, databases, and local files stay on this computer.
 /*
 !/.gitignore
+!/vercel.json
+!/.vercelignore
+!/DEPLOYMENT.md
 !/static/
 /static/*
 !/static/legal/
