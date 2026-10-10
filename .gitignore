@@ -1,38 +1,10 @@
-# Python environments and caches
-.venv/
-venv/
-env/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-.coverage.*
-htmlcov/
-
-# Credentials and local configuration (keep the setup template)
-.env
-.env.*
-!.env.example
-
-# Local app state, databases, generated previews, and logs
-instance/
-*.db
-*.db-*
-*.sqlite
-*.sqlite3
-*.sqlite3-*
-*.log
-
-# Build artifacts
-build/
-dist/
-*.egg-info/
-
-# Editor and operating system files
-.idea/
-.vscode/
-.DS_Store
-Thumbs.db
-Desktop.ini
+# This repository publishes only the legal pages.
+# Flask source, credentials, databases, and local files stay on this computer.
+/*
+!/.gitignore
+!/static/
+/static/*
+!/static/legal/
+/static/legal/*
+!/static/legal/*.html
+!/static/legal/*.css
